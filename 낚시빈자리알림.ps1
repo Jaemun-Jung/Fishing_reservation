@@ -198,16 +198,21 @@ function Get-SS24($info, $ym) {
     $res = @{}
     try { $html = 웹요청 "$($info.base)/ship/schedule_fleet/$ym" }
     catch { 로그 "  ! 조회실패 $($info.name)/$ym : $($_.Exception.Message)"; return $res }
-    $blocks = [regex]::Split($html, 'data-sdate="')
-    for ($i=1; $i -lt $blocks.Count; $i++) {
-        $b = $blocks[$i]
-        if ($b -notmatch '^(\d{4}-\d{2}-\d{2})') { continue }
-        $dt = $Matches[1] -replace '-',''
-        $tm = [regex]::Match($b, 'class="title">\s*([^<]+?)\s*<')
-        if ($tm.Groups[1].Value.Trim() -ne $info.name) { continue }
-        if ($b -match 'data-status_code="END"') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='예약마감' } }
-        elseif ($b -match 'data-status_code="(CHECK|BAD_WEATHER)"') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='점검/기상' } }
-        elseif ($b -match '남은자리[\s\S]{0,80}?(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+    # 배 제목(<div class="title">배이름</div>)은 각 날짜 셀 '앞'에 나옴.
+    # 따라서 각 data-sdate 셀의 배 = 그 셀보다 앞에 있는 가장 가까운 배 제목.
+    $titles = [regex]::Matches($html, '<div class="title">\s*([^<]+?)\s*</div>')
+    $cells  = [regex]::Matches($html, 'data-sdate="(\d{4}-\d{2}-\d{2})"')
+    for ($i=0; $i -lt $cells.Count; $i++) {
+        $pos = $cells[$i].Index
+        $dt  = $cells[$i].Groups[1].Value -replace '-',''
+        $bt = $null
+        foreach ($t in $titles) { if ($t.Index -lt $pos) { $bt = $t.Groups[1].Value.Trim() } else { break } }
+        if ($bt -ne $info.name) { continue }
+        $끝 = if ($i+1 -lt $cells.Count) { $cells[$i+1].Index } else { [Math]::Min($html.Length, $pos+2000) }
+        $seg = $html.Substring($pos, $끝-$pos)
+        if ($seg -match 'data-status_code="END"') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='예약마감' } }
+        elseif ($seg -match 'data-status_code="(CHECK|BAD_WEATHER)"') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='점검/기상' } }
+        elseif ($seg -match '남은자리[\s\S]{0,80}?(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
     }
     return $res
 }
