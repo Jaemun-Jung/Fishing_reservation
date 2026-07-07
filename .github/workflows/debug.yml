@@ -1,0 +1,13 @@
+name: debug-net
+on:
+  workflow_dispatch:
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - shell: pwsh
+        run: |
+          $UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+          try { $h=(Invoke-WebRequest -Uri 'https://thefishing.kr/reservation/list.view.view.1.ajax.new.php' -Method POST -Body 'date6=202607&st_uid=623&pa_uid=4077' -ContentType 'application/x-www-form-urlencoded; charset=utf-8' -Headers @{'X-Requested-With'='XMLHttpRequest'} -UserAgent $UA -UseBasicParsing -TimeoutSec 30); Write-Host "tf_ajax status=$($h.StatusCode) len=$($h.Content.Length) dayline=$([regex]::Matches($h.Content,'dayline').Count)" } catch { Write-Host "tf_ajax ERR $($_.Exception.Message)" }
+          try { $h=(Invoke-WebRequest -Uri 'http://www.kumkangho.co.kr/index.php?mid=bk&year=2026&month=07&day=09&mode=list&PA_N_UID=1839' -UserAgent $UA -UseBasicParsing -TimeoutSec 30); Write-Host "tf_get status=$($h.StatusCode) len=$($h.Content.Length) adminright=$([regex]::Matches($h.Content,'admin-right').Count)" } catch { Write-Host "tf_get ERR $($_.Exception.Message)" }
+          try { $h=(Invoke-WebRequest -Uri 'https://supernova.sunsang24.com/ship/schedule_fleet/202607' -UserAgent $UA -UseBasicParsing -TimeoutSec 30); Write-Host "ss24 status=$($h.StatusCode) len=$($h.Content.Length) sdate=$([regex]::Matches($h.Content,'data-sdate').Count)" } catch { Write-Host "ss24 ERR $($_.Exception.Message)" }
