@@ -166,6 +166,20 @@ function Get-TFAjax($info, $ym) {
     return $res
 }
 
+# tf_get 셀 내용 -> 상태. 사이트가 쓰는 alt/텍스트를 그대로 사용(임의 라벨 금지)
+function tfget상태($c) {
+    # 1) 이미지형 빈자리: alt="남은자리 N명"
+    if     ($c -match 'alt="남은자리\s*(\d+)명"') { return @{ 빈자리=$true;  인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+    # 2) 이미지형 그 외: alt 문구를 그대로(예약완료/예약마감/기상악화/개인사정/취소 등)
+    elseif ($c -match 'alt="([^"]+)"')            { return @{ 빈자리=$false; 인원=0; 상태=$Matches[1].Trim() } }
+    # 3) 텍스트형 마감/휴무: 사이트 단어 그대로
+    elseif ($c -match '예약완료|예약마감')          { return @{ 빈자리=$false; 인원=0; 상태=$Matches[0] } }
+    elseif ($c -match '배정비일|개인사정|기상악화|출조취소|점검일|취소') { return @{ 빈자리=$false; 인원=0; 상태=$Matches[0] } }
+    # 4) 텍스트형 빈자리: "남은자리 N명" 또는 셀에 숫자+명 (피싱아일랜드는 "14명"처럼 숫자만)
+    elseif ($c -match '남은자리\s*(\d+)명' -or $c -match '(\d+)\s*명') { return @{ 빈자리=$true;  인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+    else { return $null }
+}
+
 function Get-TFGet($info, $ym) {
     $res = @{}; $y = $ym.Substring(0,4); $m = $ym.Substring(4,2); $id = $info.id
     foreach ($d in '01','09','17','25') {
@@ -174,20 +188,18 @@ function Get-TFGet($info, $ym) {
         $ms = [regex]::Matches($html, "(?s)admin-right-(\d{8})-$id-0`">(.*?)</div>")
         if ($ms.Count -gt 0) {
             foreach ($x in $ms) {
-                $dt = $x.Groups[1].Value; $c = $x.Groups[2].Value
+                $dt = $x.Groups[1].Value
                 if ($dt.Substring(0,6) -ne $ym -or $res.ContainsKey($dt)) { continue }
-                if ($c -match '예약완료|예약마감') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='예약완료' } }
-                elseif ($c -match '기상악화|개인사정|배정비|취소|점검') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='출조취소/휴무' } }
-                elseif ($c -match '남은자리\s*(\d+)명' -or $c -match '>\s*(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+                $st = tfget상태 $x.Groups[2].Value
+                if ($st) { $res[$dt] = $st }
             }
         } else {
             $parts = [regex]::Split($html, '<a name="(\d{8})">')
             for ($i=1; $i -lt $parts.Count-1; $i+=2) {
-                $dt = $parts[$i]; $seg = $parts[$i+1]
+                $dt = $parts[$i]
                 if ($dt.Substring(0,6) -ne $ym -or $res.ContainsKey($dt)) { continue }
-                if ($seg -match '예약완료') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='예약완료' } }
-                elseif ($seg -match '기상악화') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='출조취소/휴무' } }
-                elseif ($seg -match 'alt="남은자리\s*(\d+)명"') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+                $st = tfget상태 $parts[$i+1]
+                if ($st) { $res[$dt] = $st }
             }
         }
     }
