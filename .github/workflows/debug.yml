@@ -8,8 +8,11 @@ jobs:
       - shell: pwsh
         run: |
           $UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-          foreach($u in @('https://thefishing.kr/','http://www.kumkangho.co.kr/','https://www.manaru.com/','https://supernova.sunsang24.com/')){
-            $sw=[System.Diagnostics.Stopwatch]::StartNew()
-            try { $h=Invoke-WebRequest -Uri $u -UserAgent $UA -UseBasicParsing -TimeoutSec 90; Write-Host ("{0}  OK status={1} len={2} time={3}s" -f $u,$h.StatusCode,$h.Content.Length,[int]$sw.Elapsed.TotalSeconds) }
-            catch { Write-Host ("{0}  ERR({1}s) {2}" -f $u,[int]$sw.Elapsed.TotalSeconds,$_.Exception.Message) }
-          }
+          # tf_ajax 엔드포인트 (90초)
+          $sw=[System.Diagnostics.Stopwatch]::StartNew()
+          try { $h=Invoke-WebRequest -Uri 'https://thefishing.kr/reservation/list.view.view.1.ajax.new.php' -Method POST -Body 'date6=202607&st_uid=623&pa_uid=4077' -ContentType 'application/x-www-form-urlencoded; charset=utf-8' -Headers @{'X-Requested-With'='XMLHttpRequest';'Referer'='https://thefishing.kr/reservation/list.php?uid=4077'} -UserAgent $UA -UseBasicParsing -TimeoutSec 90; Write-Host ("tf_ajax OK len={0} dayline={1} time={2}s" -f $h.Content.Length,[regex]::Matches($h.Content,'dayline').Count,[int]$sw.Elapsed.TotalSeconds) }
+          catch { Write-Host ("tf_ajax ERR({0}s) {1}" -f [int]$sw.Elapsed.TotalSeconds,$_.Exception.Message) }
+          # tf_get 엔드포인트 (90초)
+          $sw=[System.Diagnostics.Stopwatch]::StartNew()
+          try { $h=Invoke-WebRequest -Uri 'http://www.kumkangho.co.kr/index.php?mid=bk&year=2026&month=07&day=09&mode=list&PA_N_UID=1839' -Headers @{'Referer'='http://www.kumkangho.co.kr/index.php?mid=bk'} -UserAgent $UA -UseBasicParsing -TimeoutSec 90; Write-Host ("tf_get OK len={0} adminright={1} time={2}s" -f $h.Content.Length,[regex]::Matches($h.Content,'admin-right').Count,[int]$sw.Elapsed.TotalSeconds) }
+          catch { Write-Host ("tf_get ERR({0}s) {1}" -f [int]$sw.Elapsed.TotalSeconds,$_.Exception.Message) }
