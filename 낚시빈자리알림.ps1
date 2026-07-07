@@ -11,6 +11,8 @@
 #     · Actions → Secret(BOT_TOKEN / CHAT_ID) 환경변수에서 읽음
 # ============================================================
 
+param([switch]$status)   # -status : 빈자리 알림 대신 "현재 상태"만 단체방에 보냄(작동 확인용)
+
 
 ##############################################################
 ##                                                          ##
@@ -257,7 +259,7 @@ $이전 = @{}
 $첫실행 = -not (Test-Path $상태파일)
 if (-not $첫실행) {
     try { $obj = Get-Content $상태파일 -Raw -Encoding UTF8 | ConvertFrom-Json
-          foreach ($p in $obj.PSObject.Properties) { $이전[$p.Name] = [bool]$p.Value } } catch { $첫실행 = $true }
+          foreach ($p in $obj.PSObject.Properties) { if ($p.Name -eq '_hb') { continue }; $이전[$p.Name] = [bool]$p.Value } } catch { $첫실행 = $true }
 }
 
 $새상태 = @{}
@@ -271,17 +273,32 @@ foreach ($t in $대상) {
     $새상태[$t.키] = [bool]$현재.빈자리
     $요약 += "$($t.배이름) $($t.정보.표시) → $($현재.상태)"
 
-    if (-not $첫실행 -and $현재.빈자리 -and (-not $이전[$t.키])) {
+    if (-not $status -and -not $첫실행 -and $현재.빈자리 -and (-not $이전[$t.키])) {
         텔레그램전송 "🎣 빈자리 알림!`n`n$($t.배이름) — $($t.정보.표시)`n남은자리: $($현재.인원)명`n`n예약 ▶ $($t.info.link)"
         로그 "  ★ 알림 전송: $($t.배이름) $($t.정보.표시) ($($현재.인원)명)"
     }
 }
 로그 ("확인완료 | " + ($요약 -join "  ·  "))
+$환경이름 = if ($isCloud) { '클라우드' } else { '내 PC' }
+
+# -status : 알림/상태저장 없이 "현재 상태"만 보고하고 종료 (작동 확인용)
+if ($status) {
+    텔레그램전송 ("📋 현재 감시 상태 [$환경이름]`n`n" + (($요약 | ForEach-Object { "· $_" }) -join "`n"))
+    로그 "상태 보고 전송 완료"
+    exit 0
+}
+
+# 하트비트: 하루 1회 "정상 감시 중" 확인 메시지
+$오늘 = (Get-Date).ToString('yyyyMMdd')
+$지난하트 = if (-not $첫실행 -and $obj) { [string]$obj._hb } else { '' }
+$새상태['_hb'] = $오늘
 
 # 상태 저장
 try { ($새상태 | ConvertTo-Json -Compress) | Set-Content -Path $상태파일 -Encoding UTF8 } catch { 로그 "  ! 상태 저장 실패: $($_.Exception.Message)" }
 
-# 첫 실행이면 현재 상태 요약을 한 번 보냄
 if ($첫실행) {
-    텔레그램전송 ("🔔 빈자리 감시를 시작했습니다.`n`n현재 상태:`n" + (($요약 | ForEach-Object { "· $_" }) -join "`n") + "`n`n앞으로 마감된 날에 자리가 나면 바로 알려드릴게요.")
+    텔레그램전송 ("🔔 빈자리 감시를 시작했습니다. [$환경이름]`n`n현재 상태:`n" + (($요약 | ForEach-Object { "· $_" }) -join "`n") + "`n`n앞으로 마감된 날에 자리가 나면 바로 알려드릴게요.")
+} elseif ($지난하트 -ne $오늘) {
+    텔레그램전송 ("📋 정상 감시 중입니다 [$환경이름] (하루 1회 확인)`n`n현재 상태:`n" + (($요약 | ForEach-Object { "· $_" }) -join "`n"))
+    로그 "하트비트 전송"
 }
