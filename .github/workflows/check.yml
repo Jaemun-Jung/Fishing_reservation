@@ -29,6 +29,6 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add 상태.json
+          git add 상태.cloud.json
           git commit -m "상태 업데이트 [skip ci]" || echo "변경 없음"
           git push || echo "push 실패 - 다음 실행에 반영됨"

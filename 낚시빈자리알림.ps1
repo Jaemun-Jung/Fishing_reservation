@@ -18,8 +18,10 @@
 #   - 배 = 아래 "선박 목록"의 이름 그대로 (따옴표 안에)
 #   - 날짜 = "연-월-일"  (콤마로 여러 개)
 $감시목록 = @(
-    @{ 배 = "팀스카이호";   날짜 = @("2026-07-17") }
-    @{ 배 = "레드스카이호"; 날짜 = @("2026-07-17") }
+    # 선상24 배 → GitHub 클라우드가 24시간 감시 (PC 꺼져도 OK)
+    @{ 배 = "슈퍼노바호"; 날짜 = @("2026-07-20") }
+    # thefishing 계열 배 → 내 PC(시작하기.bat)가 감시 (PC 켜져 있을 때만, 한국 IP 필요)
+    @{ 배 = "팀스카이호"; 날짜 = @("2026-07-17") }
 )
 
 # ┌──────────────────────────────────────────────────────────────┐
@@ -38,6 +40,8 @@ $감시목록 = @(
 # ============================================================
 
 $base = if ($PSScriptRoot) { $PSScriptRoot } else { (Get-Location).Path }
+# 실행 환경: 클라우드(GitHub Actions)면 선상24만, 로컬 PC면 나머지(thefishing 계열)만 담당
+$isCloud = -not [string]::IsNullOrEmpty($env:GITHUB_ACTIONS)
 
 # --- 비밀값 로딩: 환경변수(Actions) 우선, 없으면 로컬 설정파일 ---
 $BotToken = $env:BOT_TOKEN
@@ -227,8 +231,13 @@ foreach ($항목 in $감시목록) {
 }
 if ($대상.Count -eq 0) { Write-Host "  ! 감시할 대상이 없습니다." -ForegroundColor Yellow; exit 1 }
 
-# 이전 상태 불러오기 (없으면 첫 실행)
-$상태파일 = Join-Path $base '상태.json'
+# 환경별 분담: 클라우드=선상24(ss24)만 / 로컬=나머지(thefishing 계열, 한국 IP 필요)
+$대상 = @($대상 | Where-Object { if ($isCloud) { $_.info.sys -eq 'ss24' } else { $_.info.sys -ne 'ss24' } })
+if ($대상.Count -eq 0) { Write-Host ("  이 환경[" + $(if($isCloud){'클라우드=선상24'}else{'내PC=thefishing'}) + "]에서 감시할 배 없음. 정상 종료.") -ForegroundColor DarkGray; exit 0 }
+Write-Host ("  [" + $(if($isCloud){'클라우드'}else{'내 PC'}) + "] 감시 $($대상.Count)건")
+
+# 이전 상태 불러오기 (없으면 첫 실행). 클라우드/로컬 상태파일 분리
+$상태파일 = Join-Path $base $(if($isCloud){'상태.cloud.json'}else{'상태.local.json'})
 $이전 = @{}
 $첫실행 = -not (Test-Path $상태파일)
 if (-not $첫실행) {
