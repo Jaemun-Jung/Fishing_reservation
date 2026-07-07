@@ -210,9 +210,10 @@ function Get-SS24($info, $ym) {
         if ($bt -ne $info.name) { continue }
         $끝 = if ($i+1 -lt $cells.Count) { $cells[$i+1].Index } else { [Math]::Min($html.Length, $pos+2000) }
         $seg = $html.Substring($pos, $끝-$pos)
-        if ($seg -match 'data-status_code="END"') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='예약마감' } }
-        elseif ($seg -match 'data-status_code="(CHECK|BAD_WEATHER)"') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='점검/기상' } }
-        elseif ($seg -match '남은자리[\s\S]{0,80}?(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+        # 남은자리 있으면 빈자리, 아니면 사이트가 표시하는 상태 문구를 그대로 사용(예약마감/점검일/기상악화 등)
+        if ($seg -match '남은자리[\s\S]{0,80}?(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
+        elseif ($seg -match 'class="shipping_status"[^>]*>\s*([^<]+?)\s*<') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태=$Matches[1].Trim() } }
+        else { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='미확인' } }
     }
     return $res
 }
