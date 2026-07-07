@@ -26,8 +26,10 @@ param([switch]$status)   # -status : 빈자리 알림 대신 "현재 상태"만 
 ##############################################################
 $감시목록 = @(
     # 선상24 배 → GitHub 클라우드가 24시간 감시 (PC 꺼져도 OK)
+    #   * 선상24는 어종이 알림에 표시됨.  어종 = "광어"  를 넣으면 그날 어종에 광어가 있을 때만 알림
+    #     예)  @{ 배 = "뉴항구호"; 날짜 = @("2026-07-17"); 어종 = "광어" }
     @{ 배 = "뉴항구호"; 날짜 = @("2026-07-17") }
-    # thefishing 계열 배 → 내 PC(시작하기.bat)가 감시 (PC 켜져 있을 때만, 한국 IP 필요)
+    # thefishing 계열 배 → 내 PC(시작하기.bat)가 감시 (PC 켜져 있을 때만, 한국 IP 필요)  ※ 어종필터 미지원
     @{ 배 = "팀스카이호"; 날짜 = @("2026-07-17") }
 )
 
@@ -220,12 +222,15 @@ function Get-SS24($info, $ym) {
         $bt = $null
         foreach ($t in $titles) { if ($t.Index -lt $pos) { $bt = $t.Groups[1].Value.Trim() } else { break } }
         if ($bt -ne $info.name) { continue }
-        $끝 = if ($i+1 -lt $cells.Count) { $cells[$i+1].Index } else { [Math]::Min($html.Length, $pos+2000) }
+        $끝 = if ($i+1 -lt $cells.Count) { $cells[$i+1].Index } else { [Math]::Min($html.Length, $pos+4000) }
         $seg = $html.Substring($pos, $끝-$pos)
-        # 남은자리 있으면 빈자리, 아니면 사이트가 표시하는 상태 문구를 그대로 사용(예약마감/점검일/기상악화 등)
-        if ($seg -match '남은자리[\s\S]{0,80}?(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명" } }
-        elseif ($seg -match 'class="shipping_status"[^>]*>\s*([^<]+?)\s*<') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태=$Matches[1].Trim() } }
-        else { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='미확인' } }
+        # 대상어종: <div id="fish">광어,우럭,농어</div> (그 날 그 배의 어종)
+        $fm = [regex]::Match($seg, 'id="fish">\s*([^<]*?)\s*</div>')
+        $어종 = if ($fm.Success) { $fm.Groups[1].Value.Trim() } else { '' }
+        # 남은자리 있으면 빈자리, 아니면 사이트 표시 문구 그대로(예약마감/점검일/기상악화 등)
+        if ($seg -match '남은자리[\s\S]{0,80}?(\d+)명') { $res[$dt] = @{ 빈자리=$true; 인원=[int]$Matches[1]; 상태="빈자리 $($Matches[1])명"; 어종=$어종 } }
+        elseif ($seg -match 'class="shipping_status"[^>]*>\s*([^<]+?)\s*<') { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태=$Matches[1].Trim(); 어종=$어종 } }
+        else { $res[$dt] = @{ 빈자리=$false; 인원=0; 상태='미확인'; 어종=$어종 } }
     }
     return $res
 }
@@ -261,7 +266,7 @@ foreach ($항목 in $감시목록) {
     $info = $선박DB[$항목.배]
     foreach ($날 in $항목.날짜) {
         try { $정보 = 날짜해석 $날 } catch { Write-Host "  ! 날짜 형식 오류: '$날'" -ForegroundColor Yellow; continue }
-        $대상 += @{ 배이름=$항목.배; info=$info; 정보=$정보; 키="$($항목.배)|$($정보.원본)" }
+        $대상 += @{ 배이름=$항목.배; info=$info; 정보=$정보; 키="$($항목.배)|$($정보.원본)"; 어종필터=$항목.어종 }
     }
 }
 if ($대상.Count -eq 0) { Write-Host "  ! 감시할 대상이 없습니다." -ForegroundColor Yellow; exit 1 }
@@ -289,11 +294,14 @@ foreach ($t in $대상) {
     $월 = $캐시[$ck]
     $현재 = if ($월.ContainsKey($t.정보.일8)) { $월[$t.정보.일8] } else { @{ 빈자리=$false; 상태='미개설/없음'; 인원=0 } }
     $새상태[$t.키] = [bool]$현재.빈자리
-    $요약 += "$($t.배이름) $($t.정보.표시) → $($현재.상태)"
+    $어종표시 = if ($현재.어종) { " [$($현재.어종)]" } else { '' }   # 선상24만 어종 있음
+    $요약 += "$($t.배이름) $($t.정보.표시) → $($현재.상태)$어종표시"
 
-    if (-not $status -and -not $첫실행 -and $현재.빈자리 -and (-not $이전[$t.키])) {
-        텔레그램전송 "🎣 빈자리 알림!`n`n$($t.배이름) — $($t.정보.표시)`n남은자리: $($현재.인원)명`n`n예약 ▶ $($t.info.link)"
-        로그 "  ★ 알림 전송: $($t.배이름) $($t.정보.표시) ($($현재.인원)명)"
+    # 어종필터: 지정 시, 그 날 어종에 그 단어가 들어있어야 알림 (예: '광어' → '광어,우럭,농어'도 통과). 어종정보 없는 배(thefishing)는 필터 무시.
+    $어종OK = (-not $t.어종필터) -or (-not $현재.어종) -or ($현재.어종 -match [regex]::Escape($t.어종필터))
+    if (-not $status -and -not $첫실행 -and $현재.빈자리 -and (-not $이전[$t.키]) -and $어종OK) {
+        텔레그램전송 "🎣 빈자리 알림!`n`n$($t.배이름) — $($t.정보.표시)$어종표시`n남은자리: $($현재.인원)명`n`n예약 ▶ $($t.info.link)"
+        로그 "  ★ 알림 전송: $($t.배이름) $($t.정보.표시)$어종표시 ($($현재.인원)명)"
     }
 }
 로그 ("확인완료 | " + ($요약 -join "  ·  "))
